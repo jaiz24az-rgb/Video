@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, Film, Music, Globe, Subtitles, Play, FileVideo, CheckCircle2 } from 'lucide-react';
 import { MediaItem, SubtitleTrack } from '../../types/media';
+import { drakorIndoSubtitles } from '../../data/mockCatalog';
 
 interface LocalFileModalProps {
   onClose: () => void;
@@ -104,7 +105,9 @@ export const LocalFileModal: React.FC<LocalFileModalProps> = ({ onClose, onPlayM
           bitrate: isM3u8 ? 'HLS Adaptif' : 'Online Direct',
         },
       ],
-      subtitles: [],
+      subtitles: [
+        { id: 'sub-custom-stream-id', label: 'Subtitle Indonesia (Otomatis)', language: 'id', src: drakorIndoSubtitles, default: true },
+      ],
     };
 
     onPlayMedia(streamItem);

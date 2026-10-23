@@ -272,6 +272,7 @@ export default function App() {
           onToggleFavorite={handleToggleFavorite}
           history={history}
           downloadedIds={downloadedIds}
+          onOpenLocalFile={() => setIsLocalFileOpen(true)}
         />
       </main>
 

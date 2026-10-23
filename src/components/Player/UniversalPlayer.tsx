@@ -10,8 +10,6 @@ import {
   PictureInPicture2,
   Subtitles,
   Sliders,
-  Moon,
-  Sun,
   Eye,
   Download,
   Check,
@@ -20,11 +18,13 @@ import {
   Volume2,
   VolumeX,
   Gauge,
-  Sparkles,
   ArrowLeft,
-  Settings,
   Clock,
   AudioWaveform,
+  Server,
+  AlertTriangle,
+  RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 import { MediaItem, Episode, QualityStream, SubtitleTrack } from '../../types/media';
 import { VolumeSlider } from './VolumeSlider';
@@ -64,11 +64,14 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
-  // Quality & Resolution State
+  // Quality & Server State
   const activeSources: QualityStream[] = currentEpisode?.sources || media.sources;
   const [selectedQuality, setSelectedQuality] = useState<string>('1080p');
+  const [activeServerIndex, setActiveServerIndex] = useState<number>(0);
   const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
+  const [showServerMenu, setShowServerMenu] = useState<boolean>(false);
 
   // Subtitle State
   const availableSubtitles: SubtitleTrack[] = currentEpisode?.subtitles || media.subtitles || [];
@@ -104,14 +107,21 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadSuccess, setDownloadSuccess] = useState<boolean>(false);
 
-  // Determine current active stream URL based on quality
+  // Custom Stream URL input
+  const [showCustomUrlInput, setShowCustomUrlInput] = useState<boolean>(false);
+  const [customUrlInput, setCustomUrlInput] = useState<string>('');
+
+  // Determine current active stream URL based on quality or server index
   const getActiveStreamUrl = useCallback((): string => {
     if (activeSources.length === 0) return '';
+    if (activeServerIndex < activeSources.length) {
+      return activeSources[activeServerIndex].url;
+    }
     const match = activeSources.find((s) => s.quality === selectedQuality);
     if (match) return match.url;
     const fallback = activeSources.find((s) => s.quality === '1080p') || activeSources[0];
     return fallback ? fallback.url : '';
-  }, [activeSources, selectedQuality]);
+  }, [activeSources, activeServerIndex, selectedQuality]);
 
   // Show HUD feedback for volume / brightness gestures
   const showHUD = (icon: string, text: string) => {
@@ -119,10 +129,10 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     if (gestureNoticeTimeout.current) clearTimeout(gestureNoticeTimeout.current);
     gestureNoticeTimeout.current = setTimeout(() => {
       setGestureNotice(null);
-    }, 1200);
+    }, 1500);
   };
 
-  // Setup HLS or Direct Video Stream
+  // Setup HLS or Direct Video Stream with Autoplay Resilience
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -130,7 +140,36 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     const streamUrl = getActiveStreamUrl();
     if (!streamUrl) return;
 
+    setVideoError(null);
+    setIsBuffering(true);
     const savedPosition = currentTime;
+
+    const attemptPlay = () => {
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+            setIsBuffering(false);
+          })
+          .catch(() => {
+            // Autoplay policy prevented unmuted playback, try muted autoplay
+            video.muted = true;
+            setIsMuted(true);
+            video
+              .play()
+              .then(() => {
+                setIsPlaying(true);
+                setIsBuffering(false);
+                showHUD('volume', 'Mulai memutar (Klik untuk nyalakan suara)');
+              })
+              .catch(() => {
+                setIsPlaying(false);
+                setIsBuffering(false);
+              });
+          });
+      }
+    };
 
     if (Hls.isSupported() && streamUrl.endsWith('.m3u8')) {
       if (hlsRef.current) {
@@ -145,16 +184,20 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (savedPosition > 0) video.currentTime = savedPosition;
-        video.play().catch(() => setIsPlaying(false));
+        attemptPlay();
+      });
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          setVideoError('Koneksi stream HLS terputus. Silakan pilih server alternatif di atas.');
+          setIsBuffering(false);
+        }
       });
     } else {
       video.src = streamUrl;
       if (savedPosition > 0) {
         video.currentTime = savedPosition;
       }
-      video.play().catch(() => {
-        setIsPlaying(false);
-      });
+      attemptPlay();
     }
 
     return () => {
@@ -214,7 +257,6 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
           bassFilterRef.current.gain.value = 5;
           trebleFilterRef.current.gain.value = 4;
         } else {
-          // Flat
           bassFilterRef.current.gain.value = 0;
           trebleFilterRef.current.gain.value = 0;
         }
@@ -281,8 +323,9 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
         setShowQualityMenu(false);
         setShowSubtitleMenu(false);
         setShowAudioMenu(false);
+        setShowServerMenu(false);
       }
-    }, 3500);
+    }, 4000);
   };
 
   const handleMouseMove = () => {
@@ -295,9 +338,20 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     if (!video) return;
 
     if (video.paused) {
-      video.play().catch(() => {});
-      setIsPlaying(true);
-      showHUD('play', 'Putar');
+      if (video.muted && isMuted) {
+        video.muted = false;
+        setIsMuted(false);
+      }
+      video
+        .play()
+        .then(() => {
+          setIsPlaying(true);
+          showHUD('play', 'Memutar');
+        })
+        .catch(() => {
+          video.muted = true;
+          video.play().then(() => setIsPlaying(true));
+        });
     } else {
       video.pause();
       setIsPlaying(false);
@@ -369,10 +423,30 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     }
   };
 
+  // Switch Stream Server
+  const handleSelectServer = (index: number) => {
+    setActiveServerIndex(index);
+    if (activeSources[index]) {
+      setSelectedQuality(activeSources[index].quality);
+    }
+    setShowServerMenu(false);
+    setVideoError(null);
+    showHUD('speed', `Beralih ke Server ${index + 1}`);
+  };
+
+  // Add Custom Stream URL
+  const handleApplyCustomUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customUrlInput.trim() || !videoRef.current) return;
+    videoRef.current.src = customUrlInput.trim();
+    videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+    setShowCustomUrlInput(false);
+    showHUD('speed', 'URL Streaming Kustom Dimuat');
+  };
+
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Avoid if user typing in input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.code === 'Space') {
@@ -417,7 +491,6 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
   });
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Only trigger if click is on the video display area
     if ((e.target as HTMLElement).tagName !== 'VIDEO') return;
     const rect = e.currentTarget.getBoundingClientRect();
     const xRatio = (e.clientX - rect.left) / rect.width;
@@ -468,7 +541,6 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     if (onDownloadOffline) {
       onDownloadOffline(media, currentEpisode);
     } else {
-      // Fallback direct download simulation with IndexedDB
       setTimeout(async () => {
         await saveDownloadedItem({
           id: currentEpisode ? currentEpisode.id : media.id,
@@ -477,7 +549,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
           title: currentEpisode ? `${media.title} - ${currentEpisode.title}` : media.title,
           poster: media.poster,
           quality: selectedQuality,
-          sizeBytes: 245 * 1024 * 1024, // 245 MB
+          sizeBytes: 245 * 1024 * 1024,
           downloadedAt: Date.now(),
           type: media.type,
           isCompleted: true,
@@ -508,19 +580,8 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
   const allSubtitles = [...availableSubtitles, ...customSubtitleTracks];
   const activeSub = allSubtitles.find((s) => s.id === activeSubtitleId);
 
-  // Subtitle Font Size CSS Class
-  const getSubtitleSizeClass = () => {
-    switch (subtitleSize) {
-      case 'small':
-        return 'text-sm sm:text-base';
-      case 'large':
-        return 'text-xl sm:text-2xl';
-      case 'xlarge':
-        return 'text-2xl sm:text-3xl';
-      default:
-        return 'text-base sm:text-lg';
-    }
-  };
+  const currentServerLabel =
+    activeSources[activeServerIndex]?.server || `Server ${activeServerIndex + 1} (${selectedQuality})`;
 
   return (
     <div
@@ -536,7 +597,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     >
       {/* Top Header Bar */}
       <div
-        className={`absolute top-0 inset-x-0 p-4 sm:p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent z-40 transition-opacity duration-300 flex items-center justify-between ${
+        className={`absolute top-0 inset-x-0 p-4 sm:p-6 bg-gradient-to-b from-black/95 via-black/50 to-transparent z-40 transition-opacity duration-300 flex items-center justify-between ${
           controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -544,7 +605,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
           <button
             onClick={onClose}
             className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-md"
-            title="Kembali ke Katalog (Esc)"
+            title="Kembali ke Beranda (Esc)"
             aria-label="Kembali"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -562,13 +623,27 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
               )}
               <span className="capitalize">{media.category}</span>
               <span aria-hidden="true">·</span>
-              <span className="font-mono">{selectedQuality}</span>
+              <span className="text-emerald-400 font-mono text-[11px]">{currentServerLabel}</span>
             </div>
           </div>
         </div>
 
         {/* Top Right Quick Controls */}
         <div className="flex items-center gap-2">
+          {/* Server Switcher Button */}
+          <button
+            onClick={() => {
+              setShowServerMenu(!showServerMenu);
+              setShowQualityMenu(false);
+              setShowSubtitleMenu(false);
+            }}
+            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-md flex items-center gap-1.5 text-xs font-medium"
+            title="Pilih Server Sumber Video / Masukkan URL Streaming"
+          >
+            <Server className="w-4 h-4 text-emerald-400" />
+            <span className="hidden sm:inline">Pilih Server ({activeServerIndex + 1})</span>
+          </button>
+
           {/* Eye Comfort Mode Toggle */}
           <button
             onClick={() => {
@@ -580,7 +655,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                 : 'bg-white/10 text-neutral-300 hover:text-white hover:bg-white/20'
             }`}
-            title="Filter Kenyamanan Mata (Mengurangi Cahaya Biru untuk Mata Nyaman di Tempat Gelap)"
+            title="Filter Kenyamanan Mata (Mengurangi Cahaya Biru)"
           >
             <Eye className="w-4 h-4" />
             <span className="hidden sm:inline">Kenyamanan Mata</span>
@@ -615,7 +690,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
 
       {/* Main Video Viewport */}
       <div
-        className="relative w-full h-full flex items-center justify-center cursor-pointer"
+        className="relative w-full h-full flex items-center justify-center cursor-pointer bg-black"
         onClick={togglePlay}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -627,6 +702,12 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
         <video
           ref={videoRef}
           playsInline
+          onError={() => {
+            setVideoError(
+              'Server streaming ini sedang sibuk atau dibatasi oleh kebijakan CORS. Silakan klik tombol di bawah untuk beralih ke Server 2, Server HLS, atau gunakan Link Kustom.'
+            );
+            setIsBuffering(false);
+          }}
           onTimeUpdate={() => {
             if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
           }}
@@ -637,11 +718,11 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
           onPlaying={() => {
             setIsBuffering(false);
             setIsPlaying(true);
+            setVideoError(null);
           }}
           onPause={() => setIsPlaying(false)}
           onEnded={() => {
             setIsPlaying(false);
-            // Auto-play next episode if available
             if (media.episodes && currentEpisode && onEpisodeSelect) {
               const nextIndex = media.episodes.findIndex((e) => e.id === currentEpisode.id) + 1;
               if (nextIndex < media.episodes.length) {
@@ -651,7 +732,6 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
           }}
           className="w-full h-full object-contain pointer-events-auto"
         >
-          {/* Subtitle track */}
           {activeSub?.src && (
             <track
               key={activeSub.id}
@@ -664,10 +744,71 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
           )}
         </video>
 
+        {/* Big Prominent Center Play Button Overlay when Paused */}
+        {!isPlaying && !isBuffering && !videoError && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePlay();
+            }}
+            className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-xs transition-opacity hover:bg-black/40 group cursor-pointer"
+          >
+            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-rose-600/95 group-hover:bg-rose-500 text-white flex items-center justify-center shadow-2xl shadow-rose-600/60 transform group-hover:scale-110 transition-all duration-200">
+              <Play className="w-9 h-9 sm:w-11 sm:h-11 ml-1.5 fill-white" />
+            </div>
+            <div className="mt-4 text-center">
+              <h3 className="text-base sm:text-lg font-bold text-white tracking-wide">
+                Klik untuk Memutar Film
+              </h3>
+              <p className="text-xs text-neutral-300 mt-1">
+                {currentEpisode ? currentEpisode.title : media.title} · Subtitle Indonesia Siap
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Video Error Fallback Screen */}
+        {videoError && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-950/95 p-6 text-center z-30"
+          >
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-4">
+              <AlertTriangle className="w-8 h-8" />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-white mb-2">Kendala Server Streaming</h3>
+            <p className="text-xs sm:text-sm text-neutral-400 max-w-md mb-6">{videoError}</p>
+
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {activeSources.map((source, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleSelectServer(idx)}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+                    activeServerIndex === idx
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-white/10 hover:bg-white/20 text-neutral-200'
+                  }`}
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>{source.server || `Server ${idx + 1}`}</span>
+                </button>
+              ))}
+              <button
+                onClick={() => setShowCustomUrlInput(true)}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all"
+              >
+                Masukkan Link Stream Baru
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Buffering Spinner */}
         {isBuffering && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
-            <div className="w-12 h-12 border-4 border-rose-500 border-t-transparent rounded-full animate-spin" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 pointer-events-none">
+            <div className="w-14 h-14 border-4 border-rose-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs text-neutral-300 font-medium mt-3">Memuat streaming video...</span>
           </div>
         )}
 
@@ -679,13 +820,120 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             {gestureNotice.icon === 'pause' && <Pause className="w-6 h-6 text-rose-500" />}
             {gestureNotice.icon === 'forward' && <RotateCw className="w-6 h-6 text-rose-500" />}
             {gestureNotice.icon === 'rewind' && <RotateCcw className="w-6 h-6 text-rose-500" />}
-            {gestureNotice.icon === 'brightness' && <Sun className="w-6 h-6 text-amber-400" />}
+            {gestureNotice.icon === 'brightness' && <Eye className="w-6 h-6 text-amber-400" />}
             {gestureNotice.icon === 'speed' && <Gauge className="w-6 h-6 text-cyan-400" />}
             {gestureNotice.icon === 'subtitle' && <Subtitles className="w-6 h-6 text-rose-400" />}
             <span className="text-sm font-semibold">{gestureNotice.text}</span>
           </div>
         )}
       </div>
+
+      {/* Server & Stream Source Selector Popover */}
+      {showServerMenu && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-20 right-4 sm:right-32 w-80 bg-neutral-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-xl p-4 text-white z-50 animate-in fade-in zoom-in-95"
+        >
+          <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-3">
+            <div className="flex items-center gap-2">
+              <Server className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                Pilih Server Streaming
+              </span>
+            </div>
+            <button
+              onClick={() => setShowServerMenu(false)}
+              className="text-neutral-400 hover:text-white text-xs"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="space-y-1.5 mb-3">
+            {activeSources.map((source, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleSelectServer(idx)}
+                className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left text-xs transition-colors ${
+                  activeServerIndex === idx
+                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 font-semibold'
+                    : 'text-neutral-300 hover:bg-white/5'
+                }`}
+              >
+                <div>
+                  <div className="text-xs">{source.server || `Server ${idx + 1}`}</div>
+                  <div className="text-[10px] text-neutral-400">
+                    Kualitas: {source.quality} · {source.bitrate || 'Online Stream'}
+                  </div>
+                </div>
+                {activeServerIndex === idx && <Check className="w-4 h-4 text-rose-400" />}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => {
+              setShowServerMenu(false);
+              setShowCustomUrlInput(true);
+            }}
+            className="w-full py-2 px-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-semibold text-neutral-200 flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Masukkan Link Stream Sendiri (.m3u8/.mp4)</span>
+          </button>
+        </div>
+      )}
+
+      {/* Custom Stream URL Modal */}
+      {showCustomUrlInput && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm"
+        >
+          <form
+            onSubmit={handleApplyCustomUrl}
+            className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-2xl p-6 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">Masukkan Link Streaming Online</h3>
+              <button
+                type="button"
+                onClick={() => setShowCustomUrlInput(false)}
+                className="text-neutral-400 hover:text-white text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Jika Anda memiliki link streaming HLS (.m3u8) atau MP4 dari situs drama/film favorit Anda, tempelkan di
+              bawah ini untuk langsung diputar dengan subtitle Indonesia.
+            </p>
+            <input
+              type="url"
+              required
+              value={customUrlInput}
+              onChange={(e) => setCustomUrlInput(e.target.value)}
+              placeholder="https://.../video.m3u8 atau .mp4"
+              className="w-full px-4 py-2 bg-neutral-950 border border-neutral-800 rounded-xl font-mono text-xs text-white focus:outline-none focus:border-rose-500"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCustomUrlInput(false)}
+                className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-neutral-300"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white"
+              >
+                Putar Sekarang
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Subtitle Manager Overlay Modal */}
       {showSubtitleMenu && (
@@ -718,16 +966,17 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             Kualitas Resolusi
           </div>
           <div className="space-y-1 mt-1">
-            {activeSources.map((source) => (
+            {activeSources.map((source, idx) => (
               <button
-                key={source.quality}
+                key={source.quality + idx}
                 onClick={() => {
                   setSelectedQuality(source.quality);
+                  setActiveServerIndex(idx);
                   setShowQualityMenu(false);
                   showHUD('speed', `Kualitas: ${source.quality}`);
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                  selectedQuality === source.quality
+                  activeServerIndex === idx
                     ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                     : 'text-neutral-300 hover:bg-white/5'
                 }`}
@@ -736,7 +985,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
                   <span className="font-semibold">{source.quality}</span>
                   {source.bitrate && <span className="text-[10px] text-neutral-400">{source.bitrate}</span>}
                 </div>
-                {selectedQuality === source.quality && <Check className="w-4 h-4 text-rose-400" />}
+                {activeServerIndex === idx && <Check className="w-4 h-4 text-rose-400" />}
               </button>
             ))}
           </div>
@@ -784,7 +1033,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             ))}
           </div>
 
-          {/* Sleep Timer in audio menu */}
+          {/* Sleep Timer */}
           <div className="mt-4 pt-3 border-t border-white/10">
             <div className="text-[11px] font-medium text-neutral-400 mb-2 flex items-center justify-between">
               <span className="flex items-center gap-1">
@@ -827,7 +1076,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
           controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
-        {/* Progress Bar with timestamp tooltip */}
+        {/* Progress Bar */}
         <div className="mb-3">
           <div className="relative group/progress flex items-center">
             <input
@@ -853,9 +1102,8 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
 
         {/* Player Action Buttons Bar */}
         <div className="flex items-center justify-between gap-2 sm:gap-4">
-          {/* Left Controls: Play/Pause, Rewind, Forward, Episode Navigation, Volume */}
+          {/* Left Controls */}
           <div className="flex items-center gap-1 sm:gap-2">
-            {/* Previous Episode */}
             {media.episodes && currentEpisode && (
               <button
                 onClick={() => {
@@ -874,7 +1122,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             <button
               onClick={() => seekRelative(-10)}
               className="p-2 rounded-xl text-neutral-300 hover:text-white hover:bg-white/10 transition-colors"
-              title="Mundur 10 Detik (Panah Kiri)"
+              title="Mundur 10 Detik"
             >
               <RotateCcw className="w-5 h-5" />
             </button>
@@ -882,7 +1130,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             <button
               onClick={togglePlay}
               className="p-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 transition-all transform active:scale-95"
-              title={isPlaying ? 'Jeda (Spasi)' : 'Putar (Spasi)'}
+              title={isPlaying ? 'Jeda' : 'Putar'}
               aria-label={isPlaying ? 'Jeda' : 'Putar'}
             >
               {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
@@ -891,12 +1139,11 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             <button
               onClick={() => seekRelative(10)}
               className="p-2 rounded-xl text-neutral-300 hover:text-white hover:bg-white/10 transition-colors"
-              title="Maju 10 Detik (Panah Kanan)"
+              title="Maju 10 Detik"
             >
               <RotateCw className="w-5 h-5" />
             </button>
 
-            {/* Next Episode */}
             {media.episodes && currentEpisode && (
               <button
                 onClick={() => {
@@ -923,7 +1170,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             </div>
           </div>
 
-          {/* Right Controls: Subtitles, Resolution/Quality, Audio Equalizer, Speed, PiP, Fullscreen */}
+          {/* Right Controls */}
           <div className="flex items-center gap-1 sm:gap-2">
             {/* Subtitle Button */}
             <button
@@ -931,6 +1178,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
                 setShowSubtitleMenu(!showSubtitleMenu);
                 setShowQualityMenu(false);
                 setShowAudioMenu(false);
+                setShowServerMenu(false);
               }}
               className={`p-2 rounded-xl text-xs font-medium flex items-center gap-1 transition-colors ${
                 activeSubtitleId
@@ -949,9 +1197,10 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
                 setShowQualityMenu(!showQualityMenu);
                 setShowSubtitleMenu(false);
                 setShowAudioMenu(false);
+                setShowServerMenu(false);
               }}
               className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-semibold transition-colors flex items-center gap-1"
-              title="Ubah Kualitas Resolusi (4K / 1080p / 720p / 480p)"
+              title="Ubah Kualitas Resolusi"
             >
               <span>{selectedQuality}</span>
             </button>
@@ -962,6 +1211,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
                 setShowAudioMenu(!showAudioMenu);
                 setShowSubtitleMenu(false);
                 setShowQualityMenu(false);
+                setShowServerMenu(false);
               }}
               className="p-2 rounded-xl text-neutral-300 hover:text-white hover:bg-white/10 transition-colors"
               title="Equalizer & Audio Presets"
@@ -996,7 +1246,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             <button
               onClick={togglePiP}
               className="hidden sm:inline-block p-2 rounded-xl text-neutral-300 hover:text-white hover:bg-white/10 transition-colors"
-              title="Putar Gambar dalam Gambar (Picture in Picture)"
+              title="Picture in Picture"
             >
               <PictureInPicture2 className="w-5 h-5" />
             </button>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Info, Heart, Download, Search, Check, Clock } from 'lucide-react';
+import { Play, Info, Heart, Search, Check, Clock, Globe, FolderOpen, Tv, HelpCircle } from 'lucide-react';
 import { MediaItem, PlaybackHistoryItem } from '../../types/media';
 
 interface CatalogGridProps {
@@ -12,6 +12,7 @@ interface CatalogGridProps {
   onToggleFavorite: (id: string) => void;
   history: PlaybackHistoryItem[];
   downloadedIds: string[];
+  onOpenLocalFile?: () => void;
 }
 
 export const CatalogGrid: React.FC<CatalogGridProps> = ({
@@ -24,8 +25,10 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
   onToggleFavorite,
   history,
   downloadedIds,
+  onOpenLocalFile,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [showGuide, setShowGuide] = useState(true);
 
   // Featured Item (Drakor Queen of Destiny)
   const featured = items.find((i) => i.id === 'drakor-1') || items[0];
@@ -53,7 +56,7 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
   });
 
   return (
-    <div className="space-y-10 pb-16">
+    <div className="space-y-8 pb-16">
       {/* Hero Showcase Banner */}
       {activeCategory === 'all' && searchQuery.trim() === '' && featured && (
         <section className="relative w-full rounded-3xl overflow-hidden border border-neutral-800 shadow-2xl bg-neutral-900">
@@ -64,7 +67,7 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover object-center"
             />
-            {/* Contrast Scrim as required by frontend-design */}
+            {/* Contrast Scrim */}
             <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/60 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-r from-neutral-950/90 via-neutral-950/40 to-transparent" />
 
@@ -133,6 +136,92 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
                     ({Math.round((featuredHistory.currentTime / (featuredHistory.duration || 1)) * 100)}%)
                   </span>
                 </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Guide & Movie Source Instructions */}
+      {showGuide && (
+        <section className="bg-neutral-900/80 border border-neutral-800 rounded-3xl p-5 sm:p-6 backdrop-blur-md">
+          <div className="flex items-center justify-between pb-3 border-b border-neutral-800 mb-4">
+            <div className="flex items-center gap-2">
+              <HelpCircle className="w-4 h-4 text-rose-500" />
+              <h2 className="text-sm font-bold text-white tracking-wide">
+                Panduan Sumber Film & 3 Cara Menonton
+              </h2>
+            </div>
+            <button
+              onClick={() => setShowGuide(false)}
+              className="text-xs text-neutral-400 hover:text-white transition-colors"
+            >
+              Tutup Panduan
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Cara 1 */}
+            <div className="p-4 rounded-2xl bg-neutral-950/60 border border-neutral-800/80 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-rose-400 font-semibold text-xs mb-1.5">
+                  <Tv className="w-4 h-4" />
+                  <span>1. Streaming Bawaan (Drakor & Dracin)</span>
+                </div>
+                <p className="text-xs text-neutral-300 leading-relaxed mb-3">
+                  Klik kartu film atau drama di bawah ini, lalu klik tombol merah <strong>Putar</strong>. Video akan
+                  diputar dengan Subtitle Indonesia otomatis dan multi-resolusi.
+                </p>
+              </div>
+              <button
+                onClick={() => onPlayMedia(featured)}
+                className="w-full py-2 px-3 rounded-xl bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 text-xs font-semibold transition-all text-center"
+              >
+                Coba Putar Seoul Night (Drakor)
+              </button>
+            </div>
+
+            {/* Cara 2 */}
+            <div className="p-4 rounded-2xl bg-neutral-950/60 border border-neutral-800/80 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-cyan-400 font-semibold text-xs mb-1.5">
+                  <Globe className="w-4 h-4" />
+                  <span>2. Punya Link Streaming Sendiri?</span>
+                </div>
+                <p className="text-xs text-neutral-300 leading-relaxed mb-3">
+                  Punya tautan streaming online (format HLS <strong>.m3u8</strong> atau <strong>.mp4</strong>) dari
+                  situs streaming lain? Tempelkan URL untuk memutarnya di player ini.
+                </p>
+              </div>
+              {onOpenLocalFile && (
+                <button
+                  onClick={onOpenLocalFile}
+                  className="w-full py-2 px-3 rounded-xl bg-cyan-600/10 hover:bg-cyan-600 text-cyan-400 hover:text-white border border-cyan-500/20 text-xs font-semibold transition-all text-center"
+                >
+                  Masukkan Link Stream Online
+                </button>
+              )}
+            </div>
+
+            {/* Cara 3 */}
+            <div className="p-4 rounded-2xl bg-neutral-950/60 border border-neutral-800/80 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-emerald-400 font-semibold text-xs mb-1.5">
+                  <FolderOpen className="w-4 h-4" />
+                  <span>3. File dari HP / Laptop Anda</span>
+                </div>
+                <p className="text-xs text-neutral-300 leading-relaxed mb-3">
+                  Punya file film yang sudah di-download di HP/Komputer (format <strong>MKV, MP4, AVI, WEBM</strong>)?
+                  Putar langsung secara offline tanpa kuota internet.
+                </p>
+              </div>
+              {onOpenLocalFile && (
+                <button
+                  onClick={onOpenLocalFile}
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/20 text-xs font-semibold transition-all text-center"
+                >
+                  Buka File dari HP / Laptop
+                </button>
               )}
             </div>
           </div>
@@ -218,7 +307,7 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
-                  {/* Subtle Gradient */}
+                  {/* Gradient */}
                   <div className="absolute inset-0 bg-gradient-to-t from-neutral-950/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
                   {/* Play hover icon */}
@@ -261,7 +350,7 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
                   )}
                 </div>
 
-                {/* Card Info (Zero-Pill Discipline: Clean metadata with typographic separators) */}
+                {/* Card Info */}
                 <div className="p-3.5 flex flex-col flex-1 justify-between">
                   <div>
                     <h3
@@ -281,7 +370,7 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
                       <span>{item.type === 'video' ? `${item.episodesCount || 1} Ep` : 'Audio'}</span>
                     </div>
 
-                    {/* Indonesian Subtitle indicator */}
+                    {/* Subtitle indicator */}
                     <div className="mt-1.5 text-[11px] text-neutral-400 line-clamp-1">
                       <span className="text-rose-400/90 font-medium">Sub Indo</span>
                       <span aria-hidden="true" className="mx-1">
@@ -303,9 +392,10 @@ export const CatalogGrid: React.FC<CatalogGridProps> = ({
 
                     <button
                       onClick={() => onPlayMedia(item)}
-                      className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition-colors"
+                      className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition-colors flex items-center gap-1"
                     >
-                      {itemHistory ? 'Lanjutkan' : 'Tonton'}
+                      <Play className="w-3 h-3 fill-current" />
+                      <span>{itemHistory ? 'Lanjutkan' : 'Putar'}</span>
                     </button>
                   </div>
                 </div>

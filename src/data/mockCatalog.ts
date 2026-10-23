@@ -39,31 +39,23 @@ export const movieIndoSubtitles = createVttDataUrl([
   { start: '00:00:15.000', end: '00:00:19.000', text: 'Semua sistem terkoneksi dan tersinkronisasi otomatis.' },
 ]);
 
-// Reliable high quality video streams with multi-resolution support
+// Multi-server streaming endpoints for maximum reliability across devices and networks
 const sampleVideoSources = {
   highQuality: [
-    { quality: '4K' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4', bitrate: '18.5 Mbps' },
-    { quality: '1080p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4', bitrate: '8.2 Mbps' },
-    { quality: '720p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4', bitrate: '4.5 Mbps' },
-    { quality: '480p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', bitrate: '2.1 Mbps' },
-    { quality: '360p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', bitrate: '1.2 Mbps' },
-    { quality: 'Auto' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4', bitrate: 'Adaptif' },
+    { quality: '1080p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4', bitrate: '8.2 Mbps', server: 'Server 1 (Google Fast CDN)' },
+    { quality: '720p' as const, url: 'https://vjs.zencdn.net/v/oceans.mp4', bitrate: '4.5 Mbps', server: 'Server 2 (Fast Mirror)' },
+    { quality: '4K' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4', bitrate: '18.5 Mbps', server: 'Server 1 (Ultra HD)' },
+    { quality: 'Auto' as const, url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', bitrate: 'Adaptif Multi-Bitrate', server: 'Server 3 (HLS Live Stream)' },
+    { quality: '480p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', bitrate: '2.1 Mbps', server: 'Server 4 (Hemat Data)' },
   ],
   tearsOfSteel: [
-    { quality: '4K' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', bitrate: '19.2 Mbps' },
-    { quality: '1080p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', bitrate: '8.5 Mbps' },
-    { quality: '720p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', bitrate: '4.8 Mbps' },
-    { quality: '480p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', bitrate: '2.2 Mbps' },
-    { quality: 'Auto' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', bitrate: 'Adaptif' },
+    { quality: '1080p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4', bitrate: '8.5 Mbps', server: 'Server 1 (Google Fast CDN)' },
+    { quality: '720p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4', bitrate: '4.8 Mbps', server: 'Server 2 (Mirror HD)' },
+    { quality: 'Auto' as const, url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', bitrate: 'Adaptif HLS', server: 'Server 3 (HLS Live Stream)' },
   ],
   sintel: [
-    { quality: '1080p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', bitrate: '7.8 Mbps' },
-    { quality: '720p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', bitrate: '4.2 Mbps' },
-    { quality: '480p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', bitrate: '1.9 Mbps' },
-  ],
-  weAreGoingOnBullrun: [
-    { quality: '1080p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4', bitrate: '7.5 Mbps' },
-    { quality: '720p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4', bitrate: '3.9 Mbps' },
+    { quality: '1080p' as const, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4', bitrate: '7.8 Mbps', server: 'Server 1 (Google Fast CDN)' },
+    { quality: '720p' as const, url: 'https://vjs.zencdn.net/v/oceans.mp4', bitrate: '4.2 Mbps', server: 'Server 2 (Fast Mirror)' },
   ],
 };
 

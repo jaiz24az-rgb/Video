@@ -13,6 +13,7 @@ export interface QualityStream {
   quality: '4K' | '1080p' | '720p' | '480p' | '360p' | 'Auto';
   url: string;
   bitrate?: string;
+  server?: string; // e.g. 'Server Utama (Fast CDN)', 'Server Cadangan (HLS Live)', 'Server 3'
 }
 
 export interface Episode {
