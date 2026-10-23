@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-canvas: #0a0a0c;
+    --color-surface: #141418;
+    --color-surface-hover: #1e1e24;
+    --color-border: #26262e;
+    --color-accent: #e11d48;
+  }
+  
+  body.theme-light {
+    --color-canvas: #f8fafc;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f1f5f9;
+    --color-border: #e2e8f0;
+    --color-accent: #e11d48;
+    color: #0f172a;
+    background-color: #f8fafc;
+  }
+
+  body.theme-amoled {
+    --color-canvas: #000000;
+    --color-surface: #0a0a0a;
+    --color-surface-hover: #141414;
+    --color-border: #1f1f1f;
+    --color-accent: #e11d48;
+    color: #f8fafc;
+    background-color: #000000;
+  }
+
+  /* Custom range input styling */
+  input[type="range"] {
+    accent-color: #e11d48;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Subtitle cue container override */
+video::cue {
+  background-color: rgba(0, 0, 0, 0.85);
+  color: #ffffff;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.15rem;
+  line-height: 1.5;
+  padding: 4px 10px;
+  border-radius: 4px;
+  text-shadow: 0px 2px 4px rgba(0, 0, 0, 0.9);
+}

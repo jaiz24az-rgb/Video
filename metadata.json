@@ -1,0 +1,6 @@
+{
+  "name": "NusantaraStream Media Player",
+  "description": "Pemutar audio & video universal semua format dengan sinkronisasi online streaming Drakor & Dracin, subtitle Indonesia, unduhan offline, riwayat tontonan lintas perangkat, kontrol volume geser intuitif, dan mode gelap.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
