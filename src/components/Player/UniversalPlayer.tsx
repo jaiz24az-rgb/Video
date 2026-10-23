@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   RefreshCw,
   ExternalLink,
+  Zap,
 } from 'lucide-react';
 import { MediaItem, Episode, QualityStream, SubtitleTrack } from '../../types/media';
 import { VolumeSlider } from './VolumeSlider';
@@ -51,15 +52,19 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+
+  // Web Audio 2x Booster Nodes
   const audioContextRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const bassFilterRef = useRef<BiquadFilterNode | null>(null);
   const trebleFilterRef = useRef<BiquadFilterNode | null>(null);
+  const mediaSourceConnected = useRef<boolean>(false);
 
   // Core Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(initialTime);
   const [duration, setDuration] = useState<number>(0);
-  const [volume, setVolume] = useState<number>(1);
+  const [volume, setVolume] = useState<number>(1.5); // Default to 150% loud volume!
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -88,7 +93,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
   const [eyeComfort, setEyeComfort] = useState<boolean>(false);
 
   // Equalizer & Audio Presets
-  const [equalizerPreset, setEqualizerPreset] = useState<'flat' | 'bass' | 'vocal' | 'cinema'>('flat');
+  const [equalizerPreset, setEqualizerPreset] = useState<'boost' | 'flat' | 'vocal' | 'bass' | 'cinema'>('boost');
   const [showAudioMenu, setShowAudioMenu] = useState<boolean>(false);
 
   // Sleep Timer
@@ -111,6 +116,99 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
   const [showCustomUrlInput, setShowCustomUrlInput] = useState<boolean>(false);
   const [customUrlInput, setCustomUrlInput] = useState<string>('');
 
+  // Resume Web Audio Context on any user interaction
+  const resumeAudioContext = useCallback(() => {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(() => {});
+    }
+  }, []);
+
+  // Initialize or connect Web Audio 2x Booster
+  const setupAudioGraph = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    try {
+      if (!audioContextRef.current) {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          audioContextRef.current = new AudioCtx();
+        }
+      }
+
+      const ctx = audioContextRef.current;
+      if (ctx) {
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
+        }
+
+        if (!mediaSourceConnected.current) {
+          try {
+            const source = ctx.createMediaElementSource(video);
+            const gainNode = ctx.createGain();
+            gainNode.gain.value = volume; // can be up to 2.0 (200% 2x boost)
+
+            const bass = ctx.createBiquadFilter();
+            bass.type = 'lowshelf';
+            bass.frequency.value = 250;
+
+            const treble = ctx.createBiquadFilter();
+            treble.type = 'highshelf';
+            treble.frequency.value = 3500;
+
+            // Soft limiter compressor to eliminate distortion when audio is boosted 2x
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.threshold.value = -4;
+            compressor.knee.value = 8;
+            compressor.ratio.value = 8;
+            compressor.attack.value = 0.003;
+            compressor.release.value = 0.25;
+
+            source.connect(gainNode);
+            gainNode.connect(bass);
+            bass.connect(treble);
+            treble.connect(compressor);
+            compressor.connect(ctx.destination);
+
+            gainNodeRef.current = gainNode;
+            bassFilterRef.current = bass;
+            trebleFilterRef.current = treble;
+            mediaSourceConnected.current = true;
+          } catch {
+            // Browser security restriction on cross-origin stream without CORS
+            // Falls back safely to native element audio output
+          }
+        }
+
+        // Apply Gain and EQ
+        if (gainNodeRef.current) {
+          gainNodeRef.current.gain.value = isMuted ? 0 : volume;
+        }
+
+        if (bassFilterRef.current && trebleFilterRef.current) {
+          if (equalizerPreset === 'boost') {
+            bassFilterRef.current.gain.value = 4;
+            trebleFilterRef.current.gain.value = 5;
+          } else if (equalizerPreset === 'vocal') {
+            bassFilterRef.current.gain.value = -2;
+            trebleFilterRef.current.gain.value = 6;
+          } else if (equalizerPreset === 'bass') {
+            bassFilterRef.current.gain.value = 8;
+            trebleFilterRef.current.gain.value = 0;
+          } else if (equalizerPreset === 'cinema') {
+            bassFilterRef.current.gain.value = 6;
+            trebleFilterRef.current.gain.value = 4;
+          } else {
+            bassFilterRef.current.gain.value = 0;
+            trebleFilterRef.current.gain.value = 0;
+          }
+        }
+      }
+    } catch {
+      // Audio graph error handling
+    }
+  }, [volume, isMuted, equalizerPreset]);
+
   // Determine current active stream URL based on quality or server index
   const getActiveStreamUrl = useCallback((): string => {
     if (activeSources.length === 0) return '';
@@ -132,7 +230,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     }, 1500);
   };
 
-  // Setup HLS or Direct Video Stream with Autoplay Resilience
+  // Setup HLS or Direct Video Stream
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -144,7 +242,13 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     setIsBuffering(true);
     const savedPosition = currentTime;
 
+    // Apply audio properties to video
+    video.volume = Math.min(1, volume);
+    video.muted = isMuted;
+
     const attemptPlay = () => {
+      setupAudioGraph();
+      resumeAudioContext();
       const playPromise = video.play();
       if (playPromise !== undefined) {
         playPromise
@@ -153,7 +257,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
             setIsBuffering(false);
           })
           .catch(() => {
-            // Autoplay policy prevented unmuted playback, try muted autoplay
+            // Autoplay policy prevented unmuted playback, start muted and prompt user
             video.muted = true;
             setIsMuted(true);
             video
@@ -161,7 +265,6 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
               .then(() => {
                 setIsPlaying(true);
                 setIsBuffering(false);
-                showHUD('volume', 'Mulai memutar (Klik untuk nyalakan suara)');
               })
               .catch(() => {
                 setIsPlaying(false);
@@ -206,7 +309,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
         hlsRef.current = null;
       }
     };
-  }, [getActiveStreamUrl]);
+  }, [getActiveStreamUrl, setupAudioGraph, resumeAudioContext]);
 
   // Initial Seek
   useEffect(() => {
@@ -214,57 +317,6 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
       videoRef.current.currentTime = initialTime;
     }
   }, [initialTime]);
-
-  // Audio Equalizer setup with Web Audio API
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    try {
-      if (!audioContextRef.current) {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtx) {
-          const ctx = new AudioCtx();
-          audioContextRef.current = ctx;
-
-          const source = ctx.createMediaElementSource(video);
-          const bass = ctx.createBiquadFilter();
-          bass.type = 'lowshelf';
-          bass.frequency.value = 250;
-
-          const treble = ctx.createBiquadFilter();
-          treble.type = 'highshelf';
-          treble.frequency.value = 3500;
-
-          source.connect(bass);
-          bass.connect(treble);
-          treble.connect(ctx.destination);
-
-          bassFilterRef.current = bass;
-          trebleFilterRef.current = treble;
-        }
-      }
-
-      // Apply preset
-      if (bassFilterRef.current && trebleFilterRef.current) {
-        if (equalizerPreset === 'bass') {
-          bassFilterRef.current.gain.value = 8;
-          trebleFilterRef.current.gain.value = 0;
-        } else if (equalizerPreset === 'vocal') {
-          bassFilterRef.current.gain.value = -3;
-          trebleFilterRef.current.gain.value = 5;
-        } else if (equalizerPreset === 'cinema') {
-          bassFilterRef.current.gain.value = 5;
-          trebleFilterRef.current.gain.value = 4;
-        } else {
-          bassFilterRef.current.gain.value = 0;
-          trebleFilterRef.current.gain.value = 0;
-        }
-      }
-    } catch {
-      // Cross-origin audio restriction handling
-    }
-  }, [equalizerPreset]);
 
   // Periodic Playback History update
   useEffect(() => {
@@ -332,16 +384,23 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     resetControlsTimeout();
   };
 
-  // Play / Pause
+  // Play / Pause with explicit Unmute
   const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
 
+    setupAudioGraph();
+    resumeAudioContext();
+
     if (video.paused) {
-      if (video.muted && isMuted) {
-        video.muted = false;
-        setIsMuted(false);
+      // Unmute on explicit user play action
+      video.muted = false;
+      setIsMuted(false);
+      video.volume = Math.min(1, volume);
+      if (gainNodeRef.current) {
+        gainNodeRef.current.gain.value = volume;
       }
+
       video
         .play()
         .then(() => {
@@ -359,6 +418,23 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     }
   };
 
+  // Explicit Unmute & Boost 2x handler
+  const handleExplicitUnmute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setupAudioGraph();
+    resumeAudioContext();
+    video.muted = false;
+    setIsMuted(false);
+    video.volume = 1.0;
+    const boostVol = Math.max(1.5, volume);
+    setVolume(boostVol);
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = boostVol;
+    }
+    showHUD('volume', `⚡ Suara Aktif (${Math.round(boostVol * 100)}% Boost)`);
+  };
+
   // Seek relative
   const seekRelative = (seconds: number) => {
     const video = videoRef.current;
@@ -367,25 +443,47 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     showHUD(seconds > 0 ? 'forward' : 'rewind', `${seconds > 0 ? '+' : ''}${seconds}s`);
   };
 
-  // Change Volume
+  // Change Volume (Supports up to 2.0 = 200% volume boost!)
   const handleVolumeChange = (newVol: number) => {
     const video = videoRef.current;
     if (!video) return;
-    video.volume = newVol;
+
+    setupAudioGraph();
+    resumeAudioContext();
+
+    // Native HTML5 volume max is 1.0
+    video.volume = Math.min(1, newVol);
     setVolume(newVol);
-    if (newVol > 0 && isMuted) {
+
+    // Web Audio GainNode can amplify 2x or more!
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = newVol;
+    }
+
+    if (newVol > 0 && (isMuted || video.muted)) {
       video.muted = false;
       setIsMuted(false);
     }
-    showHUD('volume', `Volume ${Math.round(newVol * 100)}%`);
+
+    const pct = Math.round(newVol * 100);
+    showHUD('volume', newVol > 1.0 ? `⚡ Volume Boost ${pct}% (2x Lebih Keras)` : `Volume ${pct}%`);
   };
 
   const toggleMute = () => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = !video.muted;
-    setIsMuted(video.muted);
-    showHUD('volume', video.muted ? 'Dibisukan' : `Volume ${Math.round(volume * 100)}%`);
+    setupAudioGraph();
+    resumeAudioContext();
+
+    const nextMuted = !isMuted;
+    video.muted = nextMuted;
+    setIsMuted(nextMuted);
+
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = nextMuted ? 0 : volume;
+    }
+
+    showHUD('volume', nextMuted ? 'Dibisukan' : `Volume ${Math.round(volume * 100)}%`);
   };
 
   // Toggle Fullscreen
@@ -460,7 +558,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
         seekRelative(-10);
       } else if (e.code === 'ArrowUp') {
         e.preventDefault();
-        handleVolumeChange(Math.min(1, volume + 0.1));
+        handleVolumeChange(Math.min(2.0, volume + 0.1));
       } else if (e.code === 'ArrowDown') {
         e.preventDefault();
         handleVolumeChange(Math.max(0, volume - 0.1));
@@ -506,8 +604,8 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
     if (Math.abs(deltaY) < 10) return;
 
     if (gestureState.current.type === 'volume') {
-      const step = deltaY / 400;
-      const nextVol = Math.max(0, Math.min(1, volume + step));
+      const step = deltaY / 300;
+      const nextVol = Math.max(0, Math.min(2.0, volume + step));
       handleVolumeChange(nextVol);
       gestureState.current.startY = e.clientY;
     } else if (gestureState.current.type === 'brightness') {
@@ -630,6 +728,20 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
 
         {/* Top Right Quick Controls */}
         <div className="flex items-center gap-2">
+          {/* Quick 2x Volume Boost Button */}
+          <button
+            onClick={() => handleVolumeChange(volume >= 1.9 ? 1.0 : 2.0)}
+            className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all backdrop-blur-md ${
+              volume > 1.0
+                ? 'bg-gradient-to-r from-amber-500/30 to-rose-500/30 text-amber-300 border border-amber-500/50 shadow-md shadow-amber-500/20'
+                : 'bg-white/10 text-neutral-300 hover:text-white hover:bg-white/20'
+            }`}
+            title="Tingkatkan Suara Menjadi 2x Lebih Keras (200% Volume Boost)"
+          >
+            <Zap className="w-4 h-4 text-amber-400" />
+            <span className="hidden sm:inline">Volume 2x Boost</span>
+          </button>
+
           {/* Server Switcher Button */}
           <button
             onClick={() => {
@@ -751,18 +863,35 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
               e.stopPropagation();
               togglePlay();
             }}
-            className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-xs transition-opacity hover:bg-black/40 group cursor-pointer"
+            className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-xs transition-opacity hover:bg-black/40 group cursor-pointer z-30"
           >
             <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-rose-600/95 group-hover:bg-rose-500 text-white flex items-center justify-center shadow-2xl shadow-rose-600/60 transform group-hover:scale-110 transition-all duration-200">
               <Play className="w-9 h-9 sm:w-11 sm:h-11 ml-1.5 fill-white" />
             </div>
             <div className="mt-4 text-center">
               <h3 className="text-base sm:text-lg font-bold text-white tracking-wide">
-                Klik untuk Memutar Film
+                Klik untuk Memutar Film & Suara
               </h3>
               <p className="text-xs text-neutral-300 mt-1">
                 {currentEpisode ? currentEpisode.title : media.title} · Subtitle Indonesia Siap
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Unmute & Boost Toast Alert if Video is Playing but Muted */}
+        {isPlaying && (isMuted || videoRef.current?.muted) && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              handleExplicitUnmute();
+            }}
+            className="absolute top-20 left-1/2 -translate-x-1/2 z-40 bg-gradient-to-r from-amber-600 to-rose-600 text-white px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 cursor-pointer animate-bounce border border-amber-300/40"
+          >
+            <VolumeX className="w-5 h-5 text-amber-200" />
+            <div className="text-left">
+              <span className="text-xs font-bold block">Suara Masih Dibisukan oleh Browser</span>
+              <span className="text-[11px] text-amber-100">Klik di sini untuk Nyalakan Suara & Boost 2x!</span>
             </div>
           </div>
         )}
@@ -814,7 +943,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
 
         {/* Floating HUD Feedback Indicator */}
         {gestureNotice && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-3 bg-neutral-900/90 text-white rounded-2xl backdrop-blur-md shadow-2xl flex items-center gap-3 pointer-events-none border border-white/10 animate-in fade-in zoom-in-95 duration-100">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-3 bg-neutral-900/90 text-white rounded-2xl backdrop-blur-md shadow-2xl flex items-center gap-3 pointer-events-none border border-white/10 animate-in fade-in zoom-in-95 duration-100 z-50">
             {gestureNotice.icon === 'volume' && <Volume2 className="w-6 h-6 text-rose-500" />}
             {gestureNotice.icon === 'play' && <Play className="w-6 h-6 text-rose-500" />}
             {gestureNotice.icon === 'pause' && <Pause className="w-6 h-6 text-rose-500" />}
@@ -996,31 +1125,39 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
       {showAudioMenu && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute bottom-20 right-28 sm:right-44 w-64 bg-neutral-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-xl p-4 text-white z-50 animate-in fade-in zoom-in-95"
+          className="absolute bottom-20 right-28 sm:right-44 w-72 bg-neutral-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-xl p-4 text-white z-50 animate-in fade-in zoom-in-95"
         >
-          <div className="flex items-center gap-2 pb-2 border-b border-white/10 mb-3">
-            <AudioWaveform className="w-4 h-4 text-rose-500" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
-              Equalizer & Audio Preset
-            </span>
+          <div className="flex items-center justify-between pb-2 border-b border-white/10 mb-3">
+            <div className="flex items-center gap-2">
+              <AudioWaveform className="w-4 h-4 text-rose-500" />
+              <span className="text-xs font-bold uppercase tracking-wider text-neutral-300">
+                Penguat Audio & Equalizer
+              </span>
+            </div>
+            <span className="text-[10px] font-mono text-amber-400 font-bold">2x Booster Ready</span>
           </div>
+
           <div className="space-y-1.5">
             {[
-              { id: 'flat', label: 'Standar (Original Balance)', desc: 'Suara natural tanpa boost' },
-              { id: 'bass', label: 'Bass Boost (Menggelegar)', desc: 'Penguatan frekuensi rendah' },
-              { id: 'vocal', label: 'Dialog Jernih (Vocal Focus)', desc: 'Percakapan drama lebih jelas' },
-              { id: 'cinema', label: 'Cinema Surround (Bioskop)', desc: 'Sensasi audio ruang lebar' },
+              { id: 'boost', label: 'Super Boost 200% (2x Keras)', desc: 'Amplifikasi audio 2 kali lipat + limiter' },
+              { id: 'vocal', label: 'Dialog Jernih (Vocal Focus)', desc: 'Percakapan drama Drakor/Dracin lebih jelas' },
+              { id: 'bass', label: 'Bass Boost (Menggelegar)', desc: 'Penguatan suara frekuensi rendah' },
+              { id: 'cinema', label: 'Cinema Surround (Bioskop)', desc: 'Sensasi audio megah ruang lebar' },
+              { id: 'flat', label: 'Standar (Original Balance)', desc: 'Suara asli tanpa efek boost' },
             ].map((preset) => (
               <button
                 key={preset.id}
                 onClick={() => {
                   setEqualizerPreset(preset.id as any);
+                  if (preset.id === 'boost') {
+                    handleVolumeChange(2.0);
+                  }
                   setShowAudioMenu(false);
-                  showHUD('volume', `Audio: ${preset.label.split(' ')[0]}`);
+                  showHUD('volume', `Preset: ${preset.label.split(' ')[0]}`);
                 }}
                 className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors ${
                   equalizerPreset === preset.id
-                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 font-semibold'
                     : 'text-neutral-300 hover:bg-white/5'
                 }`}
               >
@@ -1159,7 +1296,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
               </button>
             )}
 
-            {/* Intuitive Volume Slider with Mute Button */}
+            {/* Intuitive Volume Slider with 2x Boost Button */}
             <div className="ml-1 sm:ml-2">
               <VolumeSlider
                 volume={volume}
@@ -1205,7 +1342,7 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
               <span>{selectedQuality}</span>
             </button>
 
-            {/* Audio Presets & Equalizer */}
+            {/* Audio Presets & Equalizer with 2x Boost badge */}
             <button
               onClick={() => {
                 setShowAudioMenu(!showAudioMenu);
@@ -1213,8 +1350,12 @@ export const UniversalPlayer: React.FC<UniversalPlayerProps> = ({
                 setShowQualityMenu(false);
                 setShowServerMenu(false);
               }}
-              className="p-2 rounded-xl text-neutral-300 hover:text-white hover:bg-white/10 transition-colors"
-              title="Equalizer & Audio Presets"
+              className={`p-2 rounded-xl transition-colors ${
+                volume > 1.0
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'text-neutral-300 hover:text-white hover:bg-white/10'
+              }`}
+              title="Equalizer & Super Boost 200%"
             >
               <Sliders className="w-5 h-5" />
             </button>
